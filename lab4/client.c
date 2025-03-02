@@ -4,54 +4,56 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 
-void send_messages(int sock, int num) {
-    char buffer[256];
-    while (1) {
-        snprintf(buffer, sizeof(buffer), "Число: %d", num);
-        send(sock, buffer, strlen(buffer), 0);
-        printf("Отправлено: %s\n", buffer);
-        sleep(num);  // Задержка перед следующей отправкой
-    }
-}
+#define BUFFER_SIZE 1024
 
 int main(int argc, char *argv[]) {
-    if (argc != 4) {
-        printf("Использование: %s <IP> <порт> <число>\n", argv[0]);
-        return 1;
+    if (argc != 3) {
+        printf("Usage: %s <server_ip> <server_port>\n", argv[0]);
+        exit(EXIT_FAILURE);
     }
 
-    char *server_ip = argv[1];
-    int port = atoi(argv[2]);
-    int num = atoi(argv[3]);
+    int sock = 0;
+    struct sockaddr_in serv_addr;
+    char buffer[BUFFER_SIZE] = {0};
+    int i;
 
-    if (num < 1 || num > 10) {
-        printf("Число должно быть от 1 до 10\n");
-        return 1;
+    // Создание сокета
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Socket creation error");
+        exit(EXIT_FAILURE);
     }
 
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock == -1) {
-        perror("Ошибка создания сокета");
-        return 1;
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(atoi(argv[2]));
+
+    // Преобразование IP-адреса
+    if (inet_pton(AF_INET, argv[1], &serv_addr.sin_addr) <= 0) {
+        perror("Invalid address/ Address not supported");
+        exit(EXIT_FAILURE);
     }
 
-    struct sockaddr_in server_addr;
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(port);
-    if (inet_pton(AF_INET, server_ip, &server_addr.sin_addr) <= 0) {
-        perror("Ошибка преобразования IP-адреса");
+    // Подключение к серверу
+    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        perror("Connection failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Connected to server. Enter a number between 1 and 10: ");
+    scanf("%d", &i);
+
+    if (i < 1 || i > 10) {
+        printf("Invalid number. Please enter a number between 1 and 10.\n");
         close(sock);
-        return 1;
+        exit(EXIT_FAILURE);
     }
 
-    if (connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        perror("Ошибка подключения");
-        close(sock);
-        return 1;
+    // Отправка данных на сервер
+    while (1) {
+        snprintf(buffer, BUFFER_SIZE, "%d", i);
+        send(sock, buffer, strlen(buffer), 0);
+        printf("Sent: %s\n", buffer);
+        sleep(i); // Задержка
     }
-
-    printf("Подключено к серверу %s:%d\n", server_ip, port);
-    send_messages(sock, num);
 
     close(sock);
     return 0;

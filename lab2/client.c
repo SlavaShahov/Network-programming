@@ -1,50 +1,57 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 #include <arpa/inet.h>
 
 int main(int argc, char *argv[]) {
-    if (argc != 4) {
-        printf("Использование: %s <IP> <PORT> <COUNT>\n", argv[0]);
-        exit(1);
+    if (argc < 3) {
+        fprintf(stderr, "Usage: %s <IP> <PORT>\n", argv[0]);
+        exit(EXIT_FAILURE);
     }
 
-    char *server_ip = argv[1];
-    int server_port = atoi(argv[2]);
-    int count = atoi(argv[3]);
-
-    int sock;
+    int client_socket;
     struct sockaddr_in server_addr;
+    char buffer[1024];
+    int i;
 
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock == -1) {
-        perror("Ошибка при создании сокета");
-        exit(1);
+    // Создание сокета
+    if ((client_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("socket");
+        exit(EXIT_FAILURE);
     }
 
+    // Настройка адреса сервера
+    memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(server_port);
-    if (inet_pton(AF_INET, server_ip, &server_addr.sin_addr) <= 0) {
-        perror("Ошибка в IP-адресе");
-        exit(1);
+    server_addr.sin_port = htons(atoi(argv[2]));
+    if (inet_pton(AF_INET, argv[1], &server_addr.sin_addr) <= 0) {
+        perror("inet_pton");
+        close(client_socket);
+        exit(EXIT_FAILURE);
     }
 
-    if (connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
-        perror("Ошибка подключения");
-        exit(1);
+    // Подключение к серверу
+    if (connect(client_socket, (struct sockaddr *)&server_addr, sizeof(server_addr))) {
+        perror("connect");
+        close(client_socket);
+        exit(EXIT_FAILURE);
     }
 
-    for (int i = 1; i <= count; i++) {
-        int num = htonl(i);
-        if (write(sock, &num, sizeof(num)) == -1) {
-            perror("Ошибка отправки данных");
+    // Передача данных на сервер
+    for (i = 1; i <= 5; i++) {
+        snprintf(buffer, sizeof(buffer), "Message %d", i);
+        if (send(client_socket, buffer, strlen(buffer), 0) < 0) {
+            perror("send");
             break;
         }
-        printf("Отправлено: %d\n", i);
-        sleep(i);
+        printf("Sent: %s\n", buffer);
+        sleep(i);  // Задержка в i секунд
     }
 
-    close(sock);
+    close(client_socket);
     return 0;
 }

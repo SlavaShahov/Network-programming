@@ -2,87 +2,110 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <arpa/inet.h>
-#include <sys/socket.h>
+#include <signal.h>
 #include <sys/types.h>
-#include <sys/wait.h>
+#include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sys/wait.h>
 
-#define BACKLOG 5  // Максимальное число ожидающих соединений
+#define BACKLOG 10
 
-void handle_client(int client_sock) {
-    int num;
-    while (read(client_sock, &num, sizeof(num)) > 0) {
-        printf("Получено число: %d\n", ntohl(num));
-        sleep(1);  // Имитируем обработку
+void handle_client(int client_socket, int client_id) {
+    char buffer[1024];
+    int bytes_received;
+
+    while (1) {
+        // Чтение данных из сокета
+        bytes_received = recv(client_socket, buffer, sizeof(buffer) - 1, 0);
+        if (bytes_received <= 0) {
+            // Если соединение закрыто или произошла ошибка
+            if (bytes_received == 0) {
+                printf("Client %d disconnected\n", client_id);
+            } else {
+                perror("recv");
+            }
+            break;
+        }
+
+        // Добавляем завершающий нулевой символ
+        buffer[bytes_received] = '\0';
+        printf("Received from client %d: %s\n", client_id, buffer);
     }
-    close(client_sock);
+
+    close(client_socket);
     exit(0);
 }
 
-void reap_zombies(int signo) {
+void sigchld_handler(int sig) {
     while (waitpid(-1, NULL, WNOHANG) > 0);
 }
 
 int main() {
-    int server_sock, client_sock;
+    int server_socket, client_socket;
     struct sockaddr_in server_addr, client_addr;
-    socklen_t addr_size = sizeof(client_addr);
+    socklen_t client_len = sizeof(client_addr);
+    pid_t pid;
+    int client_id = 0;  // Счетчик клиентов
 
-    server_sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_sock == -1) {
-        perror("Ошибка при создании сокета");
-        exit(1);
+    // Создание сокета
+    if ((server_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("socket");
+        exit(EXIT_FAILURE);
     }
 
+    // Настройка адреса сервера
+    memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = 0; // Автоматический выбор свободного порта
+    server_addr.sin_port = 0;  // 0 для автоматического выбора порта
 
-    if (bind(server_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
-        perror("Ошибка при привязке сокета");
-        exit(1);
+    // Привязка сокета к адресу
+    if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        perror("bind");
+        close(server_socket);
+        exit(EXIT_FAILURE);
     }
 
-    // Получаем и выводим назначенный порт
-    socklen_t len = sizeof(server_addr);
-    if (getsockname(server_sock, (struct sockaddr *)&server_addr, &len) == -1) {
-        perror("Ошибка getsockname");
-        exit(1);
-    }
-    printf("Сервер слушает на порту: %d\n", ntohs(server_addr.sin_port));
+    // Получение номера порта
+    getsockname(server_socket, (struct sockaddr *)&server_addr, &client_len);
+    printf("Server is running on port: %d\n", ntohs(server_addr.sin_port));
 
-    if (listen(server_sock, BACKLOG) == -1) {
-        perror("Ошибка при прослушивании");
-        exit(1);
+    // Прослушивание входящих соединений
+    if (listen(server_socket, BACKLOG) < 0) {
+        perror("listen");
+        close(server_socket);
+        exit(EXIT_FAILURE);
     }
 
-    signal(SIGCHLD, reap_zombies); // Обработка зомби-процессов
+    // Обработка сигналов для завершения зомби-процессов
+    signal(SIGCHLD, sigchld_handler);
 
     while (1) {
-        client_sock = accept(server_sock, (struct sockaddr *)&client_addr, &addr_size);
-        if (client_sock == -1) {
-            perror("Ошибка при принятии соединения");
+        // Принятие соединения от клиента
+        if ((client_socket = accept(server_socket, (struct sockaddr *)&client_addr, &client_len)) < 0) {
+            perror("accept");
             continue;
         }
 
-        printf("Новое соединение\n");
+        // Увеличиваем счетчик клиентов
+        client_id++;
 
-        pid_t pid = fork();
-        if (pid == -1) {
-            perror("Ошибка fork");
-            close(client_sock);
-            continue;
-        }
-
-        if (pid == 0) { // Дочерний процесс
-            close(server_sock);
-            handle_client(client_sock);
+        // Создание дочернего процесса для обработки клиента
+        pid = fork();
+        if (pid < 0) {
+            perror("fork");
+            close(client_socket);
+        } else if (pid == 0) {
+            // Дочерний процесс
+            close(server_socket);
+            handle_client(client_socket, client_id);
         } else {
-            close(client_sock); // Родитель закрывает сокет клиента
+            // Родительский процесс
+            close(client_socket);
         }
     }
 
-    close(server_sock);
+    close(server_socket);
     return 0;
 }
