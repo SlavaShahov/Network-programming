@@ -56,6 +56,7 @@ int main() {
         exit(EXIT_FAILURE);
     }
 
+    
     // Настройка адреса сервера
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;

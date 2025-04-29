@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 
+
 #define SERVER_IP "127.0.0.1"  // IP-адрес сервера
 #define SERVER_PORT 12345       // Порт сервера
 #define BUFFER_SIZE 1024

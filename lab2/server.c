@@ -19,7 +19,7 @@ void handle_client(int client_socket, int client_id) {
         // Чтение данных из сокета
         bytes_received = recv(client_socket, buffer, sizeof(buffer) - 1, 0);
         if (bytes_received <= 0) {
-            // Если соединение закрыто или произошла ошибка
+            
             if (bytes_received == 0) {
                 printf("Client %d disconnected\n", client_id);
             } else {
